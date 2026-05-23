@@ -1,0 +1,63 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+export type Verdict =
+  | "LOSSLESS"
+  | "PROBABLY-LOSSY"
+  | "UNCERTAIN"
+  | "NOT-FLAC"
+  | "UNKNOWN";
+
+export const VERDICTS: Verdict[] = [
+  "LOSSLESS",
+  "PROBABLY-LOSSY",
+  "UNCERTAIN",
+  "NOT-FLAC",
+  "UNKNOWN",
+];
+
+export interface ScanRow {
+  verdict: Verdict;
+  path: string;
+  peak: number | null;
+  sr: number | null;
+  info: string;
+}
+
+export interface ScanReport {
+  root: string;
+  generated: string;
+  rows: ScanRow[];
+}
+
+export interface ScanProgress {
+  done: number;
+  total: number;
+  path: string;
+  verdict: Verdict;
+}
+
+export async function scanLibrary(
+  root: string,
+  workers?: number,
+): Promise<ScanReport> {
+  return invoke<ScanReport>("scan_library", { root, workers: workers ?? null });
+}
+
+export async function loadReport(): Promise<ScanReport | null> {
+  return invoke<ScanReport | null>("load_report");
+}
+
+export async function saveReport(report: ScanReport): Promise<void> {
+  return invoke("save_report", { report });
+}
+
+export async function openFolder(path: string): Promise<void> {
+  return invoke("open_folder", { path });
+}
+
+export async function onScanProgress(
+  cb: (p: ScanProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<ScanProgress>("scan-progress", (event) => cb(event.payload));
+}

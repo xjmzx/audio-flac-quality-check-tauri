@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, FolderTree } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FolderTree,
+} from "lucide-react";
 import { Section } from "./Section";
 import { cn } from "../lib/cn";
+import { splitPath } from "../lib/paths";
 import { openFolder, type ScanRow, type Verdict } from "../lib/tauri";
 
 const VERDICT_COLOR: Record<Verdict, string> = {
@@ -27,18 +34,6 @@ interface Artist {
   name: string;
   albums: Album[];
   totalTracks: number;
-}
-
-function splitPath(fp: string, root: string): [string, string, string] {
-  let rel = fp;
-  if (root && rel.startsWith(root)) rel = rel.slice(root.length);
-  rel = rel.replace(/^\/+/, "");
-  const parts = rel.split("/");
-  if (parts.length >= 3) {
-    return [parts[0], parts.slice(1, -1).join("/"), parts[parts.length - 1]];
-  }
-  if (parts.length === 2) return [parts[0], "(no album)", parts[1]];
-  return ["(unknown)", "(no album)", parts[0] ?? rel];
 }
 
 function group(rows: ScanRow[], root: string): Artist[] {
@@ -120,6 +115,17 @@ export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus }: LibraryT
     setOpenAlbums(next);
   }
 
+  function expandAll() {
+    setOpenArtists(new Set(artists.map((a) => a.name)));
+    setOpenAlbums(
+      new Set(artists.flatMap((a) => a.albums.map((al) => `${a.name}//${al.name}`))),
+    );
+  }
+  function collapseAll() {
+    setOpenArtists(new Set());
+    setOpenAlbums(new Set());
+  }
+
   async function openTrackFolder(row: TrackRow) {
     const full = `${libRoot.replace(/\/$/, "")}/${row._artist}/${row._album}/${row._track}`;
     const folder = full.split("/").slice(0, -1).join("/");
@@ -131,19 +137,42 @@ export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus }: LibraryT
     }
   }
 
-  if (rows.length === 0) {
-    return (
-      <Section title="Library" icon={<FolderTree size={16} />}>
-        <p className="text-xs text-muted">
-          No tracks to display. Run a scan, or clear the active filter (Esc).
-        </p>
-      </Section>
-    );
-  }
-
   return (
-    <Section title="Library" icon={<FolderTree size={16} />}>
-      <div className="max-h-[60vh] overflow-auto rounded-md bg-bg/40 divide-y divide-surface/40">
+    <Section
+      title="Library"
+      icon={<FolderTree size={16} />}
+      className="flex-1 min-h-0"
+      contentClassName="flex-1 min-h-0 flex flex-col"
+    >
+      <div className="flex items-center justify-end gap-1 shrink-0 -mt-1">
+        <button
+          onClick={collapseAll}
+          disabled={artists.length === 0}
+          title="Collapse all"
+          className="px-2 py-1 rounded text-muted hover:text-fg hover:bg-surface/40
+                     disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronsDownUp size={14} />
+        </button>
+        <button
+          onClick={expandAll}
+          disabled={artists.length === 0}
+          title="Expand all"
+          className="px-2 py-1 rounded text-muted hover:text-fg hover:bg-surface/40
+                     disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronsUpDown size={14} />
+        </button>
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto rounded-md bg-bg/40 divide-y divide-surface/40">
+        {artists.length === 0 && (
+          <div className="h-full flex items-center justify-center text-center text-muted text-xs p-8">
+            <span>
+              No tracks to display.<br />
+              Run a scan, or clear the active filter (Esc).
+            </span>
+          </div>
+        )}
         {artists.map((artist) => {
           const isOpen = openArtists.has(artist.name);
           const ac = countsFor(artist.albums.flatMap((a) => a.tracks));
@@ -185,7 +214,7 @@ export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus }: LibraryT
                         </span>
                       </button>
                       {alOpen &&
-                        album.tracks.map((t) => (
+                        album.tracks.map((t, i) => (
                           <div
                             key={t.path}
                             onDoubleClick={() => openTrackFolder(t)}
@@ -193,7 +222,8 @@ export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus }: LibraryT
                             className={cn(
                               "grid grid-cols-[1fr_120px_90px_70px] gap-2 items-center",
                               "pl-14 pr-3 py-0.5 text-xs font-mono cursor-pointer",
-                              "hover:bg-surface/20",
+                              "hover:bg-surface/40",
+                              i % 2 === 1 && "bg-bg/40",
                             )}
                           >
                             <span className="truncate text-fg/80">{t._track}</span>

@@ -6,9 +6,16 @@ interface SectionProps {
   icon?: ReactNode;
   children?: ReactNode;
   className?: string;
+  contentClassName?: string;
 }
 
-export function Section({ title, icon, children, className }: SectionProps) {
+export function Section({
+  title,
+  icon,
+  children,
+  className,
+  contentClassName,
+}: SectionProps) {
   return (
     <section
       className={cn(
@@ -17,11 +24,11 @@ export function Section({ title, icon, children, className }: SectionProps) {
         className,
       )}
     >
-      <header className="flex items-center gap-2 text-accent font-semibold">
+      <header className="flex items-center gap-2 text-accent font-semibold shrink-0">
         {icon}
         <h2 className="text-sm tracking-wide uppercase">{title}</h2>
       </header>
-      <div className="text-sm text-fg/90">{children}</div>
+      <div className={cn("text-sm text-fg/90", contentClassName)}>{children}</div>
     </section>
   );
 }

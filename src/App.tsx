@@ -72,9 +72,12 @@ export default function App() {
     return c;
   }, [report]);
 
+  const libRoot = report?.root ?? root;
+  const anyFilter = filter.verdict !== "All" || filter.search.trim() !== "";
+
   return (
-    <div className="min-h-screen p-6 max-w-[1400px] mx-auto flex flex-col gap-4">
-      <header>
+    <div className="h-screen p-6 max-w-[1400px] mx-auto flex flex-col gap-4">
+      <header className="shrink-0">
         <h1 className="text-3xl font-bold text-accent tracking-tight">
           FLAC<span className="text-fg"> Library Browser</span>
         </h1>
@@ -84,9 +87,9 @@ export default function App() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)] gap-4 items-start">
-        {/* Left column: scanner + filters + tree */}
-        <div className="flex flex-col gap-4 min-w-0">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)] gap-4 items-stretch">
+        {/* Left column: scanner + filters + tree (tree fills remaining height) */}
+        <div className="flex flex-col gap-4 min-w-0 min-h-0">
           <ScannerControls
             root={root}
             setRoot={setRoot}
@@ -104,8 +107,8 @@ export default function App() {
           />
           <LibraryTree
             rows={filteredRows}
-            libRoot={report?.root ?? root}
-            anyFilter={filter.verdict !== "All" || filter.search.trim() !== ""}
+            libRoot={libRoot}
+            anyFilter={anyFilter}
             onOpenStatus={setStatus}
           />
         </div>
@@ -116,7 +119,7 @@ export default function App() {
 
       <StatusBar text={status.text} tone={status.tone} />
 
-      <footer className="text-xs text-muted">
+      <footer className="text-xs text-muted shrink-0">
         <span>stack: Tauri 2 + React + TypeScript + Tailwind · matches smpl-tool / ndisc</span>
       </footer>
     </div>

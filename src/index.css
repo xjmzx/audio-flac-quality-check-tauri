@@ -54,6 +54,20 @@ body {
   @apply bg-surfaceHover text-fg;
 }
 
+/* Native <select> popup options — WebKit defaults the open-menu
+   background to system white. Force the panel + foreground colours so
+   the open dropdown matches the closed-state styling. The :checked
+   rule covers the currently-selected option, which the OS otherwise
+   highlights with its own (white-ish) selection colour. */
+select option {
+  background-color: rgb(var(--c-bg));
+  color: rgb(var(--c-fg));
+}
+select option:checked {
+  background-color: rgb(var(--c-panel));
+  color: rgb(var(--c-fg));
+}
+
 /* Custom scrollbar — dark, slightly wider than WebKit's default, easier
    to grab. Applies globally. */
 ::-webkit-scrollbar {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Lock } from "lucide-react";
+import { KeyRound, Lock } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { ScannerControls } from "./components/ScannerControls";
 import { Filters, type FilterState } from "./components/Filters";
@@ -188,18 +188,26 @@ export default function App() {
       <footer className="shrink-0 flex flex-wrap items-center justify-between
                          gap-x-8 gap-y-1 text-xs text-muted">
         <span>stack: Tauri 2 + React + TypeScript + Tailwind · matches smpl-tool / ndisc</span>
-        {identity && (
+        {identity ? (
           <span className="inline-flex items-center gap-2 min-w-0">
             <span className="font-mono text-mauve" title={identity.npub}>
               {shortNpub(identity.npub)}
             </span>
             <span
-              className="inline-flex items-center gap-1"
-              title="secret key stored in OS keychain (libsecret on Linux)"
+              className="inline-flex items-center gap-1 text-ok"
+              title="signed in · nsec stored in OS keychain (libsecret on Linux)"
             >
               <Lock size={11} />
-              <span>nsec in keychain</span>
+              <span>signed in · nsec in keychain</span>
             </span>
+          </span>
+        ) : (
+          <span
+            className="inline-flex items-center gap-1.5 text-muted/80"
+            title="No key in the OS keychain for this build. Load or generate one in the Publish · Nostr panel."
+          >
+            <KeyRound size={11} className="opacity-60" />
+            <span>not signed in · no key in keychain</span>
           </span>
         )}
       </footer>

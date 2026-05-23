@@ -72,18 +72,19 @@ export function Filters({ filter, setFilter, counts, total }: FiltersProps) {
             spellCheck={false}
           />
         </div>
-      </div>
 
-      {total > 0 && (
-        <div className="mt-2 text-xs text-muted flex flex-wrap gap-x-4 gap-y-1">
-          <span>{total.toLocaleString()} tracks</span>
-          {VERDICTS.filter((v) => counts[v] > 0).map((v) => (
-            <span key={v} className={VERDICT_COLOR[v]}>
-              {counts[v].toLocaleString()} {v.toLowerCase()}
-            </span>
-          ))}
-        </div>
-      )}
+        {total > 0 && (
+          <div className="ml-auto text-xs text-muted flex flex-wrap gap-x-4 gap-y-1
+                          items-center justify-end text-right">
+            <span>{total.toLocaleString()} tracks</span>
+            {VERDICTS.filter((v) => counts[v] > 0).map((v) => (
+              <span key={v} className={VERDICT_COLOR[v]}>
+                {counts[v].toLocaleString()} {v.toLowerCase()}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </Section>
   );
 }

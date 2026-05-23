@@ -66,9 +66,16 @@ export async function countFlacFiles(root: string): Promise<FlacCount> {
 
 export async function createMirrorTree(
   dest: string,
+  sourceRoot: string,
   pairs: MirrorPair[],
+  sudo: boolean,
 ): Promise<MirrorResult> {
-  return invoke<MirrorResult>("create_mirror_tree", { dest, pairs });
+  return invoke<MirrorResult>("create_mirror_tree", {
+    dest,
+    sourceRoot,
+    pairs,
+    sudo,
+  });
 }
 
 export async function loadReport(): Promise<ScanReport | null> {

@@ -229,42 +229,129 @@ struct MirrorResult {
 #[tauri::command]
 async fn create_mirror_tree(
     dest: String,
+    source_root: String,
     pairs: Vec<MirrorPair>,
+    sudo: bool,
 ) -> Result<MirrorResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let dest_pb = PathBuf::from(&dest);
-        if dest_pb.exists() && !dest_pb.is_dir() {
-            return Err(format!("destination exists and is not a directory: {dest}"));
+        if sudo {
+            mirror_tree_pkexec(dest, source_root, pairs)
+        } else {
+            mirror_tree_plain(dest, pairs)
         }
-        fs::create_dir_all(&dest_pb)
-            .map_err(|e| format!("create {}: {e}", dest_pb.display()))?;
-
-        let mut created = 0usize;
-        let mut skipped = 0usize;
-        let mut errors: Vec<String> = Vec::new();
-        for pair in pairs {
-            // Strip any leading "/" or ".." from artist/release to keep the
-            // resulting path strictly under `dest`.
-            let artist = sanitize(&pair.artist);
-            let release = sanitize(&pair.release);
-            if artist.is_empty() || release.is_empty() {
-                errors.push(format!("skipped empty pair: {:?}/{:?}", pair.artist, pair.release));
-                continue;
-            }
-            let target = dest_pb.join(&artist).join(&release);
-            if target.exists() {
-                skipped += 1;
-                continue;
-            }
-            match fs::create_dir_all(&target) {
-                Ok(()) => created += 1,
-                Err(e) => errors.push(format!("{}: {e}", target.display())),
-            }
-        }
-        Ok(MirrorResult { created, skipped, errors })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+fn mirror_tree_plain(dest: String, pairs: Vec<MirrorPair>) -> Result<MirrorResult, String> {
+    let dest_pb = PathBuf::from(&dest);
+    if dest_pb.exists() && !dest_pb.is_dir() {
+        return Err(format!("destination exists and is not a directory: {dest}"));
+    }
+    fs::create_dir_all(&dest_pb)
+        .map_err(|e| format!("create {}: {e}", dest_pb.display()))?;
+
+    let mut created = 0usize;
+    let mut skipped = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for pair in pairs {
+        let artist = sanitize(&pair.artist);
+        let release = sanitize(&pair.release);
+        if artist.is_empty() || release.is_empty() {
+            errors.push(format!("skipped empty pair: {:?}/{:?}", pair.artist, pair.release));
+            continue;
+        }
+        let target = dest_pb.join(&artist).join(&release);
+        if target.exists() {
+            skipped += 1;
+            continue;
+        }
+        match fs::create_dir_all(&target) {
+            Ok(()) => created += 1,
+            Err(e) => errors.push(format!("{}: {e}", target.display())),
+        }
+    }
+    Ok(MirrorResult { created, skipped, errors })
+}
+
+fn mirror_tree_pkexec(
+    dest: String,
+    source_root: String,
+    pairs: Vec<MirrorPair>,
+) -> Result<MirrorResult, String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let dest_pb = PathBuf::from(&dest);
+    let src_pb = PathBuf::from(&source_root);
+
+    let src_meta = fs::metadata(&src_pb)
+        .map_err(|e| format!("stat source {}: {e}", src_pb.display()))?;
+    let uid = src_meta.uid();
+    let gid = src_meta.gid();
+    let mode = src_meta.mode() & 0o7777;
+
+    // Sanitize + classify pairs into existing (skip) vs missing (need mkdir).
+    let mut to_create: Vec<PathBuf> = Vec::new();
+    let mut skipped = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for pair in pairs {
+        let artist = sanitize(&pair.artist);
+        let release = sanitize(&pair.release);
+        if artist.is_empty() || release.is_empty() {
+            errors.push(format!("skipped empty pair: {:?}/{:?}", pair.artist, pair.release));
+            continue;
+        }
+        let target = dest_pb.join(&artist).join(&release);
+        if target.exists() {
+            skipped += 1;
+        } else {
+            to_create.push(target);
+        }
+    }
+
+    // Always run chown/chmod on the destination root even if nothing new — so
+    // a half-finished previous attempt gets corrected. mkdir is no-op when
+    // to_create is empty.
+    let dest_q = shell_quote(&dest_pb.to_string_lossy());
+    let mut script = String::new();
+    script.push_str(&format!("mkdir -p -- {dest_q}"));
+    if !to_create.is_empty() {
+        let mkdir_args = to_create
+            .iter()
+            .map(|p| shell_quote(&p.to_string_lossy()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        script.push_str(&format!(" && mkdir -p -- {mkdir_args}"));
+    }
+    script.push_str(&format!(
+        " && chown -R {uid}:{gid} -- {dest_q} && chmod -R {mode:o} -- {dest_q}"
+    ));
+
+    let output = std::process::Command::new("pkexec")
+        .arg("sh")
+        .arg("-c")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("pkexec spawn failed (is pkexec installed?): {e}"))?;
+
+    if !output.status.success() {
+        // Code 126/127 = user dismissed / not authorized.
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let code = output.status.code().unwrap_or(-1);
+        let msg = if stderr.trim().is_empty() {
+            "authorization failed".to_string()
+        } else {
+            stderr.trim().to_string()
+        };
+        return Err(format!("pkexec exit {code}: {msg}"));
+    }
+
+    Ok(MirrorResult {
+        created: to_create.len(),
+        skipped,
+        errors,
+    })
 }
 
 fn sanitize(component: &str) -> String {
@@ -273,6 +360,12 @@ fn sanitize(component: &str) -> String {
         .trim_matches('/')
         .replace("..", "_")
         .replace('\0', "")
+}
+
+/// Single-quote-wrap a string for embedding in an `sh -c` script. Embedded
+/// single quotes become `'\''` (close, escaped quote, reopen).
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 #[tauri::command]

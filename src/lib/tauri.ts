@@ -95,3 +95,36 @@ export async function onScanProgress(
 ): Promise<UnlistenFn> {
   return listen<ScanProgress>("scan-progress", (event) => cb(event.payload));
 }
+
+// ---- nostr reactions (kind:7 / kind:5 via Rust signing) ----
+
+export interface RelayError {
+  relay: string;
+  error: string;
+}
+
+export interface ReactionResult {
+  eventId: string;
+  acceptedBy: string[];
+  rejected: RelayError[];
+}
+
+export async function publishReaction(
+  eventId: string,
+  authorPk: string,
+  targetKind: number,
+  content: string,
+): Promise<ReactionResult> {
+  return invoke<ReactionResult>("publish_reaction", {
+    eventId,
+    authorPk,
+    targetKind,
+    content,
+  });
+}
+
+export async function deleteReaction(
+  reactionEventId: string,
+): Promise<ReactionResult> {
+  return invoke<ReactionResult>("delete_reaction", { reactionEventId });
+}

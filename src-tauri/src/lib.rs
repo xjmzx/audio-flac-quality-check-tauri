@@ -14,7 +14,9 @@ use std::thread::available_parallelism;
 
 use keyring::Entry;
 use nostr::nips::nip19::{FromBech32, ToBech32};
-use nostr::{Keys, SecretKey};
+use nostr::{EventBuilder, Keys, Kind, SecretKey, Tag};
+use nostr_sdk::prelude::Output;
+use nostr_sdk::Client;
 use rayon::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -612,6 +614,126 @@ fn clear_identity() -> Result<(), String> {
     }
 }
 
+// ---- nostr reactions (kind:7 / kind:5) --------------------------------
+
+const REACTION_RELAYS: &[&str] = &["wss://relay.fizx.uk", "wss://nos.lol"];
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RelayError {
+    relay: String,
+    error: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReactionResult {
+    event_id: String,
+    accepted_by: Vec<String>,
+    rejected: Vec<RelayError>,
+}
+
+async fn build_client(keys: Keys, relays: &[&str]) -> Client {
+    let client = Client::builder().signer(keys).build();
+    for url in relays {
+        let _ = client.add_relay(*url).await;
+    }
+    client.connect().await;
+    client
+}
+
+fn split_send_output(output: &Output<nostr::EventId>) -> (Vec<String>, Vec<RelayError>) {
+    let accepted: Vec<String> = output.success.iter().map(|u| u.to_string()).collect();
+    let rejected: Vec<RelayError> = output
+        .failed
+        .iter()
+        .map(|(url, err)| RelayError {
+            relay: url.to_string(),
+            error: err.clone(),
+        })
+        .collect();
+    (accepted, rejected)
+}
+
+/// Publish a kind:7 reaction referencing an arbitrary (non-replaceable)
+/// event. For kind:1063 audio in the FeedPanel: target_kind = 1063,
+/// content = "+" / "-" / emoji.
+#[tauri::command]
+async fn publish_reaction(
+    event_id: String,
+    author_pk: String,
+    target_kind: u16,
+    content: String,
+) -> Result<ReactionResult, String> {
+    let nsec = load_nsec()?.ok_or_else(|| "no Nostr identity in keychain".to_string())?;
+    let keys = keys_from_nsec(&nsec)?;
+
+    let tags = vec![
+        Tag::parse(["e", &event_id]).map_err(|e| e.to_string())?,
+        Tag::parse(["p", &author_pk]).map_err(|e| e.to_string())?,
+        Tag::parse(["k", &target_kind.to_string()]).map_err(|e| e.to_string())?,
+    ];
+
+    let event = EventBuilder::new(Kind::Reaction, &content)
+        .tags(tags)
+        .sign_with_keys(&keys)
+        .map_err(|e| e.to_string())?;
+    let id = event.id.to_string();
+
+    let client = build_client(keys, REACTION_RELAYS).await;
+    let send_result = client.send_event(&event).await;
+    let _ = client.shutdown().await;
+
+    let output = send_result.map_err(|e| e.to_string())?;
+    let (accepted_by, rejected) = split_send_output(&output);
+
+    if accepted_by.is_empty() {
+        let first = rejected
+            .first()
+            .map(|r| format!("{}: {}", r.relay, r.error))
+            .unwrap_or_else(|| "no relays accepted the event".to_string());
+        return Err(format!("publish failed — {first}"));
+    }
+
+    Ok(ReactionResult {
+        event_id: id,
+        accepted_by,
+        rejected,
+    })
+}
+
+/// Publish a kind:5 deletion event for one of *our* prior reactions
+/// (undoes a previously-published kind:7).
+#[tauri::command]
+async fn delete_reaction(reaction_event_id: String) -> Result<ReactionResult, String> {
+    let nsec = load_nsec()?.ok_or_else(|| "no Nostr identity in keychain".to_string())?;
+    let keys = keys_from_nsec(&nsec)?;
+
+    let tags = vec![
+        Tag::parse(["e", &reaction_event_id]).map_err(|e| e.to_string())?,
+        Tag::parse(["k", "7"]).map_err(|e| e.to_string())?,
+    ];
+
+    let event = EventBuilder::new(Kind::EventDeletion, "")
+        .tags(tags)
+        .sign_with_keys(&keys)
+        .map_err(|e| e.to_string())?;
+    let id = event.id.to_string();
+
+    let client = build_client(keys, REACTION_RELAYS).await;
+    let send_result = client.send_event(&event).await;
+    let _ = client.shutdown().await;
+
+    let output = send_result.map_err(|e| e.to_string())?;
+    let (accepted_by, rejected) = split_send_output(&output);
+
+    Ok(ReactionResult {
+        event_id: id,
+        accepted_by,
+        rejected,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -627,7 +749,9 @@ pub fn run() {
             get_identity,
             generate_identity,
             import_identity,
-            clear_identity
+            clear_identity,
+            publish_reaction,
+            delete_reaction
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

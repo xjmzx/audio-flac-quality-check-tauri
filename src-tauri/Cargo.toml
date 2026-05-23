@@ -29,5 +29,7 @@ regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Nostr identity: keypair generation, bech32 nsec/npub encoding. Matches ndisc.
 nostr = "0.43"
+# Nostr relay client for publishing kind:7 reactions + kind:5 deletions.
+nostr-sdk = "0.43"
 # OS keychain (libsecret on Linux via secret-service). Matches ndisc.
 keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }

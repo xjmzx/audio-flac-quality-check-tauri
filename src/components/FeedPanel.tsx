@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Headphones, RefreshCw, Search, User, UserCheck } from "lucide-react";
+import {
+  Headphones,
+  Loader2,
+  RefreshCw,
+  Search,
+  ThumbsDown,
+  ThumbsUp,
+  User,
+  UserCheck,
+} from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { Section } from "./Section";
 import { cn } from "../lib/cn";
 import { type Identity, shortNpub } from "../lib/nostr";
+import { useReactions } from "../hooks/useReactions";
+import { REACTION_DOWN, REACTION_UP, displayCount } from "../lib/rating";
 
 const RELAY_URL = "wss://relay.fizx.uk";
 const KIND = 1063;
@@ -196,6 +207,15 @@ export function FeedPanel({ identity }: FeedPanelProps) {
     });
   }, [events, search]);
 
+  // Reaction subscription scoped to currently-visible feed events. Reads
+  // are read-only (no signing); writes go via Rust commands so the nsec
+  // stays in the OS keychain.
+  const reactionRefs = useMemo(
+    () => visible.map((e) => ({ id: e.id, pubkey: e.pubkey })),
+    [visible],
+  );
+  const reactions = useReactions(reactionRefs, identity?.pk ?? null, KIND);
+
   return (
     <Section title="Listen · Nostr" icon={<Headphones size={16} />}>
       <div className="flex items-center gap-2 text-xs">
@@ -288,6 +308,19 @@ export function FeedPanel({ identity }: FeedPanelProps) {
           const a = audioFrom(event)!;
           const npub = npubFromHex(event.pubkey);
           const title = a.title ?? event.content.trim() ?? "untitled";
+          const agg = reactions.forEvent(event.id);
+          const isBusy = reactions.busy === event.id;
+          const myUp = agg.mine != null; // mine is the reaction event id
+          const onUp = async () => {
+            if (!reactions.canReact || isBusy) return;
+            if (myUp) await reactions.unreact(event.id);
+            else await reactions.react(event.id, REACTION_UP);
+          };
+          const onDown = async () => {
+            if (!reactions.canReact || isBusy) return;
+            if (myUp) await reactions.unreact(event.id);
+            await reactions.react(event.id, REACTION_DOWN);
+          };
           return (
             <li key={event.id} className="p-2.5 space-y-1.5">
               <div className="flex items-center gap-2 text-[11px]">
@@ -307,6 +340,42 @@ export function FeedPanel({ identity }: FeedPanelProps) {
                 src={a.url}
                 className="w-full h-8"
               />
+              <div className="flex items-center gap-1 text-[11px]">
+                <button
+                  onClick={onUp}
+                  disabled={!reactions.canReact || isBusy}
+                  title={
+                    !reactions.canReact
+                      ? "load a key to react"
+                      : myUp
+                        ? "remove your reaction"
+                        : "upvote"
+                  }
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded",
+                    "disabled:opacity-40 disabled:cursor-not-allowed",
+                    myUp
+                      ? "bg-ok/15 text-ok"
+                      : "text-muted hover:text-fg hover:bg-surface/40",
+                  )}
+                >
+                  {isBusy ? <Loader2 size={11} className="animate-spin" /> : <ThumbsUp size={11} />}
+                  {displayCount(agg.up)}
+                </button>
+                <button
+                  onClick={onDown}
+                  disabled={!reactions.canReact || isBusy}
+                  title={!reactions.canReact ? "load a key to react" : "downvote"}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded",
+                    "disabled:opacity-40 disabled:cursor-not-allowed",
+                    "text-muted hover:text-alert hover:bg-surface/40",
+                  )}
+                >
+                  <ThumbsDown size={11} />
+                  {displayCount(agg.down)}
+                </button>
+              </div>
             </li>
           );
         })}

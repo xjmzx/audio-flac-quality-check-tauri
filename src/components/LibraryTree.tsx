@@ -96,9 +96,22 @@ interface LibraryTreeProps {
    * until backend lands.
    */
   onSampleScope: (label: string, tracks: ScanRow[]) => void;
+  /**
+   * Returns true if a 10-second clip exists under the workspace dest for
+   * the given row. Used to tint the Scissors icon (muted → ok green) on
+   * artist/album rows that already have samples on disk.
+   */
+  hasSample: (row: ScanRow) => boolean;
 }
 
-export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus, onSampleScope }: LibraryTreeProps) {
+export function LibraryTree({
+  rows,
+  libRoot,
+  anyFilter,
+  onOpenStatus,
+  onSampleScope,
+  hasSample,
+}: LibraryTreeProps) {
   const artists = useMemo(() => group(rows, libRoot), [rows, libRoot]);
   const [openArtists, setOpenArtists] = useState<Set<string>>(new Set());
   const [openAlbums, setOpenAlbums] = useState<Set<string>>(new Set());
@@ -186,6 +199,25 @@ export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus, onSampleSc
           const isOpen = openArtists.has(artist.name);
           const allArtistTracks = artist.albums.flatMap((a) => a.tracks);
           const ac = countsFor(allArtistTracks);
+          const sampledHere = allArtistTracks.filter(hasSample).length;
+          const sampleState =
+            sampledHere === 0
+              ? "none"
+              : sampledHere === allArtistTracks.length
+                ? "all"
+                : "partial";
+          const scissorsClass =
+            sampleState === "all"
+              ? "text-ok"
+              : sampleState === "partial"
+                ? "text-mauve"
+                : "text-muted";
+          const scissorsTitle =
+            sampleState === "all"
+              ? `All ${allArtistTracks.length} tracks already sampled · click to re-sample`
+              : sampleState === "partial"
+                ? `${sampledHere} of ${allArtistTracks.length} tracks sampled · click to sample the rest`
+                : `Sample ${artist.totalTracks} tracks across ${artist.albums.length} albums — 10s each`;
           return (
             <div key={artist.name}>
               <div className="w-full flex items-center pr-2 py-1.5 hover:bg-surface/30">
@@ -205,9 +237,11 @@ export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus, onSampleSc
                 </button>
                 <button
                   onClick={() => onSampleScope(artist.name, allArtistTracks)}
-                  title={`Sample ${artist.totalTracks} tracks across ${artist.albums.length} albums — 10s each`}
-                  className="ml-2 px-2 py-1 rounded text-muted hover:text-accent
-                             hover:bg-surface/40 shrink-0"
+                  title={scissorsTitle}
+                  className={cn(
+                    "ml-2 px-2 py-1 rounded hover:text-accent hover:bg-surface/40 shrink-0",
+                    scissorsClass,
+                  )}
                   aria-label={`Sample all tracks by ${artist.name}`}
                 >
                   <Scissors size={12} />
@@ -218,6 +252,25 @@ export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus, onSampleSc
                   const key = `${artist.name}//${album.name}`;
                   const alOpen = openAlbums.has(key);
                   const albumCounts = countsFor(album.tracks);
+                  const alSampled = album.tracks.filter(hasSample).length;
+                  const alState =
+                    alSampled === 0
+                      ? "none"
+                      : alSampled === album.tracks.length
+                        ? "all"
+                        : "partial";
+                  const alScissorsClass =
+                    alState === "all"
+                      ? "text-ok"
+                      : alState === "partial"
+                        ? "text-mauve"
+                        : "text-muted";
+                  const alScissorsTitle =
+                    alState === "all"
+                      ? `All ${album.tracks.length} tracks already sampled · click to re-sample`
+                      : alState === "partial"
+                        ? `${alSampled} of ${album.tracks.length} tracks sampled · click to sample the rest`
+                        : `Sample ${album.tracks.length} tracks from this release — 10s each`;
                   return (
                     <div key={key}>
                       <div className="w-full flex items-center pr-2 py-1 hover:bg-surface/20">
@@ -237,9 +290,11 @@ export function LibraryTree({ rows, libRoot, anyFilter, onOpenStatus, onSampleSc
                         </button>
                         <button
                           onClick={() => onSampleScope(`${artist.name} / ${album.name}`, album.tracks)}
-                          title={`Sample ${album.tracks.length} tracks from this release — 10s each`}
-                          className="ml-2 px-2 py-1 rounded text-muted hover:text-accent
-                                     hover:bg-surface/40 shrink-0"
+                          title={alScissorsTitle}
+                          className={cn(
+                            "ml-2 px-2 py-1 rounded hover:text-accent hover:bg-surface/40 shrink-0",
+                            alScissorsClass,
+                          )}
                           aria-label={`Sample release ${album.name}`}
                         >
                           <Scissors size={12} />

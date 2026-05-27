@@ -30,6 +30,29 @@ export function uniquePairs(rows: ScanRow[], libRoot: string): MirrorPair[] {
 }
 
 /**
+ * Compute the "source signature" for one source track — the relative
+ * path under `srcRoot` with the file extension stripped. Matches the
+ * format `scan_sample_dest` returns for already-sampled clips, so a
+ * frontend lookup is `set.has(sourceSignature(row.path, libRoot))`.
+ */
+export function sourceSignature(srcPath: string, srcRoot: string): string {
+  const sr = srcRoot.replace(/\/+$/, "");
+  const stripExt = (n: string) => {
+    const i = n.lastIndexOf(".");
+    return i < 0 ? n : n.substring(0, i);
+  };
+  if (sr && srcPath.startsWith(sr + "/")) {
+    const rel = srcPath.substring(sr.length + 1);
+    const parts = rel.split("/");
+    const base = parts.pop() || "sample";
+    const baseNoExt = stripExt(base);
+    return parts.length ? `${parts.join("/")}/${baseNoExt}` : baseNoExt;
+  }
+  const base = srcPath.split("/").pop() || "sample";
+  return stripExt(base);
+}
+
+/**
  * Compute the sample output path for one source track.
  * `<srcRoot>/Artist/Album/track.flac` → `<destRoot>/Artist/Album/track.10s.flac`.
  * Falls back to a flat basename under destRoot for paths outside srcRoot

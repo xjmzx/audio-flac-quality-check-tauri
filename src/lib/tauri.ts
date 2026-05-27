@@ -149,6 +149,20 @@ export async function cancelSample(): Promise<void> {
   await invoke("cancel_sample");
 }
 
+/**
+ * Returns "signatures" of already-sampled tracks under the workspace
+ * dest. Each signature is the relative path with the `.<dur>s.flac`
+ * suffix stripped — pair with `sourceSignature(srcPath, srcRoot)` in
+ * lib/paths.ts to look up whether a given source row has a clip on
+ * disk. Empty list if dest doesn't exist yet.
+ */
+export async function scanSampleDest(
+  destRoot: string,
+  durationSecs: number,
+): Promise<string[]> {
+  return invoke<string[]>("scan_sample_dest", { destRoot, durationSecs });
+}
+
 export async function onSampleProgress(
   cb: (p: SampleProgress) => void,
 ): Promise<UnlistenFn> {

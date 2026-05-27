@@ -6,9 +6,16 @@ import { usePersistedBool } from "../lib/usePersistedString";
 
 const EXPANDED_KEY = "afqc-tauri.filter.expanded";
 
+export type SampleFilter = "all" | "sampled" | "unsampled";
+
 export interface FilterState {
   verdict: "All" | Verdict;
   search: string;
+  /**
+   * Filter by whether a track has a 10s clip on disk under the workspace
+   * dest. Set to `"all"` to ignore. App-level `hasSample` decides per row.
+   */
+  sample: SampleFilter;
 }
 
 interface FiltersProps {
@@ -66,6 +73,25 @@ export function Filters({ filter, setFilter, counts, total }: FiltersProps) {
                 {v}
               </option>
             ))}
+          </select>
+          <ChevronDown
+            size={14}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+          />
+        </div>
+
+        <div className="relative" title="Filter by sampled-on-disk status">
+          <select
+            value={filter.sample}
+            onChange={(e) =>
+              setFilter({ ...filter, sample: e.target.value as SampleFilter })
+            }
+            className="appearance-none pl-3 pr-8 py-2 rounded-md bg-bg text-fg outline-none
+                       border border-transparent focus:border-accent/50 text-sm cursor-pointer"
+          >
+            <option value="all">All</option>
+            <option value="sampled">Sampled</option>
+            <option value="unsampled">Unsampled</option>
           </select>
           <ChevronDown
             size={14}

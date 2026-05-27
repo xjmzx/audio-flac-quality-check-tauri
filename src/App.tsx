@@ -15,6 +15,7 @@ import {
   loadReport,
   onSampleProgress,
   sampleTracks,
+  scanSampleDest,
   type SampleProgress,
   type ScanReport,
   type ScanRow,
@@ -22,7 +23,7 @@ import {
 } from "./lib/tauri";
 import { loadIdentity, shortNpub, type Identity } from "./lib/nostr";
 import { usePersistedString } from "./lib/usePersistedString";
-import { sampleDestPath } from "./lib/paths";
+import { sampleDestPath, sourceSignature } from "./lib/paths";
 
 const SAMPLE_SECS = 10;
 const SAMPLE_START_OFFSET_SECS = 30;
@@ -76,7 +77,11 @@ export default function App() {
   const [root, setRoot] = usePersistedString(SCANNER_ROOT_KEY, DEFAULT_ROOT);
   // Shared destination — see WORKSPACE_DEST_KEY comment.
   const [workspaceDest, setWorkspaceDest] = usePersistedString(WORKSPACE_DEST_KEY, "");
-  const [filter, setFilter] = useState<FilterState>({ verdict: "All", search: "" });
+  const [filter, setFilter] = useState<FilterState>({
+    verdict: "All",
+    search: "",
+    sample: "all",
+  });
   const [status, setStatus] = useState<{ text: string; tone: "muted" | "warn" | "ok" | "alert" }>(
     { text: "ready", tone: "muted" },
   );
@@ -91,6 +96,34 @@ export default function App() {
   const samplingActive = useRef(false);
   const sampleCancelledRef = useRef(false);
   const sampleUnlisten = useRef<(() => void) | null>(null);
+  // Source signatures of already-sampled tracks under the workspace dest.
+  // Refreshed when the dest changes and after each sample batch resolves.
+  // LibraryTree uses it to tint the Scissors icons green on artist/album
+  // rows that already have clips on disk.
+  const [sampledSignatures, setSampledSignatures] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  async function refreshSampledSignatures(dest: string) {
+    if (!dest.trim()) {
+      setSampledSignatures(new Set());
+      return;
+    }
+    try {
+      const sigs = await scanSampleDest(dest.trim(), SAMPLE_SECS);
+      setSampledSignatures(new Set(sigs));
+    } catch {
+      // Dest unreadable or missing — treat as no samples present.
+      setSampledSignatures(new Set());
+    }
+  }
+
+  // Re-scan whenever the workspace dest changes (including app start,
+  // since the persisted value rehydrates on mount).
+  useEffect(() => {
+    refreshSampledSignatures(workspaceDest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceDest]);
 
   // Apply + persist theme.
   useEffect(() => {
@@ -217,6 +250,10 @@ export default function App() {
       setSampling(null);
       sampleUnlisten.current?.();
       sampleUnlisten.current = null;
+      // Refresh the sampled-signatures set so LibraryTree's Scissors icons
+      // pick up the new clips immediately (whether the run completed,
+      // cancelled mid-flight, or errored — some files may have landed).
+      refreshSampledSignatures(workspaceDest);
     }
   }
 
@@ -235,12 +272,14 @@ export default function App() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        setFilter({ verdict: "All", search: "" });
+        setFilter({ verdict: "All", search: "", sample: "all" });
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const libRoot = report?.root ?? root;
 
   const filteredRows: ScanRow[] = useMemo(() => {
     if (!report) return [];
@@ -248,9 +287,14 @@ export default function App() {
     return report.rows.filter((r) => {
       if (filter.verdict !== "All" && r.verdict !== filter.verdict) return false;
       if (q && !r.path.toLowerCase().includes(q)) return false;
+      if (filter.sample !== "all") {
+        const has = sampledSignatures.has(sourceSignature(r.path, libRoot));
+        if (filter.sample === "sampled" && !has) return false;
+        if (filter.sample === "unsampled" && has) return false;
+      }
       return true;
     });
-  }, [report, filter]);
+  }, [report, filter, sampledSignatures, libRoot]);
 
   const counts = useMemo(() => {
     const c: Record<Verdict, number> = {
@@ -264,8 +308,10 @@ export default function App() {
     return c;
   }, [report]);
 
-  const libRoot = report?.root ?? root;
-  const anyFilter = filter.verdict !== "All" || filter.search.trim() !== "";
+  const anyFilter =
+    filter.verdict !== "All" ||
+    filter.search.trim() !== "" ||
+    filter.sample !== "all";
 
   return (
     <div className="h-screen p-6 max-w-[1400px] mx-auto flex flex-col gap-4">
@@ -399,6 +445,9 @@ export default function App() {
             anyFilter={anyFilter}
             onOpenStatus={setStatus}
             onSampleScope={(label, tracks) => runSample(label, tracks)}
+            hasSample={(row) =>
+              sampledSignatures.has(sourceSignature(row.path, libRoot))
+            }
           />
         </div>
 

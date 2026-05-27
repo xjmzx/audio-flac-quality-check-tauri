@@ -750,6 +750,58 @@ fn sample_one(item: &SampleItem, duration_secs: u32, start_offset_secs: u32) -> 
     }
 }
 
+/// Walk the workspace destination and enumerate already-sampled clips.
+/// Returns a list of "source signatures" — the relative path under
+/// `dest_root` with the `.<duration_secs>s.flac` suffix stripped. The
+/// frontend mirrors this via `sourceSignature(srcPath, srcRoot)` so a
+/// scan row is "has-local-sample" iff its signature is in the returned
+/// set. Empty list if the dest doesn't exist (fresh setup).
+#[tauri::command]
+async fn scan_sample_dest(
+    dest_root: String,
+    duration_secs: u32,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>, String> {
+        let root = PathBuf::from(&dest_root);
+        if !root.is_dir() {
+            return Ok(Vec::new());
+        }
+        let suffix = format!(".{duration_secs}s.flac");
+        let mut sigs = Vec::new();
+        for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            if !name.ends_with(&suffix) {
+                continue;
+            }
+            let rel = match path.strip_prefix(&root) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let parent = rel
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let stem = &name[..name.len() - suffix.len()];
+            let sig = if parent.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{parent}/{stem}")
+            };
+            sigs.push(sig);
+        }
+        Ok(sigs)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn sample_tracks(
     items: Vec<SampleItem>,
@@ -1139,6 +1191,7 @@ pub fn run() {
             cancel_scan,
             sample_tracks,
             cancel_sample,
+            scan_sample_dest,
             count_audio_files,
             create_mirror_tree,
             load_report,
